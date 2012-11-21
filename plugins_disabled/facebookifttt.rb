@@ -94,7 +94,6 @@ class FacebookIFTTTLogger < Slogger
           month, day, year, time = line.split
           parseTime = DateTime.parse(time).strftime("%H:%M")
           hour,min = parseTime.split(/:/)
-
           month = Date::MONTHNAMES.index(month)
           ltime = Time.local(year, month, day, hour, min, 0, 0)
           date = ltime.to_i
