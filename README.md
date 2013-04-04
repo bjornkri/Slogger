@@ -1,5 +1,6 @@
 Support Slogger by contributing to my [GitTip fund](https://www.gittip.com/ttscoff/).
 
+
 ## Upgrade Note ##
 
 *If you are upgrading from a version prior to 2.0.12, please remove the RSSLogger section from `slogger_config` and regenerate it by running slogger again. A new section will be added in addition to RSSLogger called Bloglogger. RSSLogger now logs all entries for the timespan as a single digest entry, whereas Bloglogger loads each item found as an individual "post."*
@@ -62,12 +63,13 @@ Slogger indexes various public social services and creates Day One (<http://dayo
 
 1. From within the Slogger folder, run `./slogger` to create the initial configuration file. If this doesn't work, you may need to make the file executable: `chmod a+x slogger` from within the Slogger folder.
 2. Edit the file `slogger_config` that shows up
-    - The only options will be 'storage:' and 'image_filename_is_title:'
+    - The only options will be 'storage:', 'image_filename_is_title:', 'date_format:' and 'time_format:'
     - storage: should be one of
         -  'icloud'
         -  a path to a Dropbox-synced Journal (e.g. '/Users/username/Dropbox/Apps/Day One/Journal.dayone')
         -  a path to a folder for storing markdown files and related images (if the path doesn't end in "Journal.dayone", markdown storage is triggered automatically)
     - image_filename_is_title: should be set to true or false. If true, it will use the base filename (without extension) as the title of images imported individually.
+    - date_format and time_format should be set to your favorite style (strftime)
 3. Move any additional plugins you want to use from `/plugins_disabled/` into `/plugins/`.
 4. Run `./slogger` again to update the configuration file with enabled plugin options.
 5. Edit `slogger_config` again and fill in the necessary parameters for listed configuration settings.
@@ -123,3 +125,31 @@ When developing plugins you can create a directory called 'plugins_develop' in t
 - `:retries` is the number of retries to attempt on any given operation. Create loops in network calls and parsing routines to allow for retry on failure, and use `$options[:retries]` to determine how many times to iterate.
 
 `@timespan` is available to all plugins and contains a date object based on the timespan setting. This defaults to 24 hours prior to the run.
+
+`@date_format`, `@time_format` and `@datetime_format` (this is just the conjunction of the first two) are available to all plugins and should be used wherever you output a date or time to DayOne files, e.g. `Time.now.strftime(@date_format)`.
+
+## License
+
+     __  _
+    / _\| | ___   __ _  __ _  ___ _ __
+    \ \ | |/ _ \ / _` |/ _` |/ _ \ '__|
+    _\ \| | (_) | (_| | (_| |  __/ |
+    \__/|_|\___/ \__, |\__, |\___|_|
+                 |___/ |___/
+         Copyright 2012, Brett Terpstra
+               http://brettterpstra.com
+                   --------------------
+
+[The BSD License]
+
+Copyright (c) 2012 Brett Terpstra
+
+All rights reserved.
+
+> Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+> Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+> Neither the name of the author nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+> **THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.**

@@ -14,14 +14,18 @@ config = {
   'description' => [
     'Logs updates and favorites for specified Twitter users',
     'twitter_users should be an array of Twitter usernames, e.g. [ ttscoff, markedapp ]',
-    'save_images (true/false) determines weather TwitterLogger will look for image urls and include them in the entry',
-    'save_favorites (true/false) determines weather TwitterLogger will look for the favorites of the given usernames and include them in the entry',
-    'save_images_from_favorites (true/false) determines weather TwitterLogger will download images for the favorites of the given usernames and include them in the entry',
+    'save_images (true/false) determines whether TwitterLogger will look for image urls and include them in the entry',
+    'save_favorites (true/false) determines whether TwitterLogger will look for the favorites of the given usernames and include them in the entry',
+    'save_images_from_favorites (true/false) determines whether TwitterLogger will download images for the favorites of the given usernames and include them in the entry',
+    'save_retweets (true/false) determines whether TwitterLogger will look for the retweets of the given usernames and include them in the entry',
+    'save_images_from_retweets (true/false) determines whether TwitterLogger will download images for the retweets of the given usernames and include them in the entry',
     'droplr_domain: if you have a custom droplr domain, enter it here, otherwise leave it as d.pr '],
   'twitter_users' => [],
   'save_favorites' => true,
   'save_images' => true,
   'save_images_from_favorites' => true,
+  'save_retweets' => true,
+  'save_images_from_retweets' => true,
   'droplr_domain' => 'd.pr',
   'twitter_tags' => '#social #twitter'
 }
@@ -45,10 +49,13 @@ class TwitterLogger < Slogger
 
   def download_images(images)
 
+    @twitter_config['twitter_tags'] ||= ''
+    tags = "\n\n#{@twitter_config['twitter_tags']}\n" unless @twitter_config['twitter_tags'] == ''
+
     images.each do |image|
       next if image['content'].nil? || image['url'].nil?
       options = {}
-      options['content'] = image['content']
+      options['content'] = "#{image['content']}#{tags}"
       options['uuid'] = %x{uuidgen}.gsub(/-/,'').strip
       sl = DayOne.new
       path = sl.save_image(image['url'],options['uuid'])
@@ -60,11 +67,18 @@ class TwitterLogger < Slogger
 
   def get_tweets(user,type='timeline')
     @log.info("Getting Twitter #{type} for #{user}")
-    if type == 'favorites'
-      url = URI.parse("http://api.twitter.com/1/favorites.xml?count=200&screen_name=#{user}&include_entities=true&count=200")
-    else
-      url = URI.parse("http://api.twitter.com/1/statuses/user_timeline.xml?screen_name=#{user}&count=200&exclude_replies=true&include_entities=true")
+    case type
+      when 'favorites'
+        url = URI.parse("http://api.twitter.com/1/favorites.xml?count=200&screen_name=#{user}&include_entities=true&count=200")
+
+      when 'timeline'
+        url = URI.parse("http://api.twitter.com/1/statuses/user_timeline.xml?screen_name=#{user}&count=200&exclude_replies=true&include_entities=true")
+
+      when 'retweets'
+        url = URI.parse("http://api.twitter.com/1/statuses/retweeted_by_user.xml?screen_name=#{user}&count=200&include_entities=true")
+
     end
+
     tweets = []
     images = []
     begin
@@ -138,8 +152,8 @@ class TwitterLogger < Slogger
           @log.warn("Failure gathering image urls")
           p e
         end
-        if tweet_images.empty? or (type == 'favorites' and !@twitter_config['save_images_from_favorites'])
-          tweets.push("* [[#{tweet_date.strftime('%I:%M %p')}](https://twitter.com/#{user}/status/#{tweet_id})] #{tweet_text}")
+        if tweet_images.empty? or !@twitter_config["save_images_from_#{type}"]
+          tweets.push("* [[#{tweet_date.strftime(@time_format)}](https://twitter.com/#{user}/status/#{tweet_id})] #{tweet_text}")
         else
           images.concat(tweet_images)
         end
@@ -181,45 +195,51 @@ class TwitterLogger < Slogger
     tags = "\n\n#{@twitter_config['twitter_tags']}\n" unless @twitter_config['twitter_tags'] == ''
 
     @twitter_config['twitter_users'].each do |user|
-      retries = 0
-      success = false
-      until success
-        tweets = self.get_tweets(user,'timeline')
-        if tweets
-          success = true
-        else
-          break if $options[:max_retries] == retries
-          retries += 1
-          @log.error("Error parsing Tweets for #{user}, retrying (#{retries}/#{$options[:max_retries]})")
-          sleep 2
-        end
-      end
-      retries = 0
-      success = false
+
+      tweets = try { self.get_tweets(user, 'timeline') }
+
       if @twitter_config['save_favorites']
-        until success
-          favs = self.get_tweets(user,'favorites')
-          if favs
-            success = true
-          else
-            break if $options[:max_retries] == retries
-            retries += 1
-            @log.error("Error parsing Favorites for #{user}, retrying (#{retries}/#{$options[:max_retries]})")
-            sleep 2
-          end
-        end
+        favs = try { self.get_tweets(user, 'favorites')}
       else
         favs = ''
       end
+
+      if @twitter_config['save_retweets']
+        retweets = try { self.get_tweets(user, 'retweets')}
+      else
+        retweets = ''
+      end
+
       unless tweets == ''
-        tweets = "## Tweets\n\n### Posts by @#{user} on #{Time.now.strftime('%m-%d-%Y')}\n\n#{tweets}#{tags}"
+        tweets = "## Tweets\n\n### Posts by @#{user} on #{Time.now.strftime(@date_format)}\n\n#{tweets}#{tags}"
         sl.to_dayone({'content' => tweets})
       end
       unless favs == ''
-        favs = "## Favorite Tweets\n\n### Favorites from @#{user} for #{Time.now.strftime('%m-%d-%Y')}\n\n#{favs}#{tags}"
+        favs = "## Favorite Tweets\n\n### Favorites from @#{user} for #{Time.now.strftime(@date_format)}\n\n#{favs}#{tags}"
         sl.to_dayone({'content' => favs})
       end
+      unless  retweets == ''
+        retweets = "## Retweets\n\n### Retweets from @#{user} for #{Time.now.strftime(@date_format)}\n\n#{retweets}#{tags}"
+        sl.to_dayone({'content' => retweets})
+      end
     end
+  end
+
+  def try(&action)
+    retries = 0
+    success = false
+    until success || $options[:max_retries] == retries
+      result = yield
+      if result
+        success = true
+      else
+        @log.error e
+        retries += 1
+        @log.error("Error performing action, retrying (#{retries}/#{$options[:max_retries]})")
+        sleep 2
+      end
+    end
+    result
   end
 
 end

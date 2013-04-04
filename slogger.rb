@@ -1,5 +1,13 @@
 #!/usr/bin/env ruby
-
+#    __  _
+#   / _\| | ___   __ _  __ _  ___ _ __
+#   \ \ | |/ _ \ / _` |/ _` |/ _ \ '__|
+#   _\ \| | (_) | (_| | (_| |  __/ |
+#   \__/|_|\___/ \__, |\__, |\___|_|
+#                |___/ |___/
+#        Copyright 2012, Brett Terpstra
+#              http://brettterpstra.com
+#                  --------------------
 require 'open-uri'
 require 'net/http'
 require 'net/https'
@@ -10,6 +18,7 @@ require 'erb'
 require 'logger'
 require 'optparse'
 require 'fileutils'
+require 'rexml/parsers/pullparser'
 
 SLOGGER_HOME = File.dirname(File.expand_path(__FILE__))
 ENV['SLOGGER_HOME'] = SLOGGER_HOME
@@ -34,6 +43,14 @@ class String
     contents
   end
 
+  # convert (multi)Markdown to HTML
+  def to_html
+    md = SLOGGER_HOME + '/lib/multimarkdown'
+    return %x{echo #{self.e_sh}|"#{md}"}
+  end
+
+  # shell escape for passing content to external commands
+  # e.g. %x{echo content.e_sh|sort}
   def e_sh
     self.to_s.gsub(/(?=[^a-zA-Z0-9_.\/\-\n])/, '\\').gsub(/\n/, "'\n'").sub(/^$/, "''")
   end
@@ -42,6 +59,67 @@ class String
     self.to_s.gsub(/([\[\]\(\)])/, '\\\\\1')
   end
 
+  # escape text for use in a quoted AppleScript string
+  #
+  # string = %q{"This is a quoted string and it's awfully nice!"}
+  # res = %x{osascript <<'APPLESCRIPT'
+  #   return "hello, #{string.e_as}"
+  # APPLESCRIPT}
+  def e_as(str)
+    str.to_s.gsub(/(?=["\\])/, '\\')
+  end
+
+  def truncate_html(len = 30)
+    p = REXML::Parsers::PullParser.new(self)
+    tags = []
+    new_len = len
+    results = ''
+    while p.has_next? && new_len > 0
+      p_e = p.pull
+      case p_e.event_type
+      when :start_element
+        tags.push p_e[0]
+        results << "<#{tags.last} #{attrs_to_s(p_e[1])}>"
+      when :end_element
+        results << "</#{tags.pop}>"
+      when :text
+        results << p_e[0].first(new_len)
+        new_len -= p_e[0].length
+      else
+        results << "<!-- #{p_e.inspect} -->"
+      end
+    end
+    tags.reverse.each do |tag|
+      results << "</#{tag}>"
+    end
+    results
+  end
+
+  private
+
+  def attrs_to_s(attrs)
+    if attrs.empty?
+      ''
+    else
+      attrs.to_a.map { |attr| %{#{attr[0]}="#{attr[1]}"} }.join(' ')
+    end
+  end
+end
+
+class SloggerUtils
+  def get_stdin(message)
+    print message + " "
+    STDIN.gets.chomp
+  end
+
+  def ask(message, valid_options = nil)
+    if valid_options
+      answer = get_stdin("#{message} #{valid_options.to_s.gsub(/"/, '').gsub(/, /,'/')} ") while !valid_options.include?(answer)
+    else
+      answer = get_stdin(message)
+    end
+    answer
+  end
 end
 
 class Slogger
@@ -88,6 +166,9 @@ class Slogger
     @config['image_filename_is_title'] ||= false
     @dayonepath = self.storage_path
     @template = self.template
+    @date_format = @config['date_format'] || '%F'
+    @time_format = @config['time_format'] || '%R'
+    @datetime_format = "#{@date_format} #{@time_format}"
   end
 
   def undo_slogger(count = 1)
@@ -169,13 +250,12 @@ class Slogger
         end
         @config[_namespace][_namespace+"_last_run"] = Time.now.strftime('%c')
       end
-      # ConfigTools.new.dump_config(@config)
-      if plugin['updates_config'] && plugin['updates_config'] == true
-        # Pass a reference to config for mutation
-        eval(plugin['class']).new.do_log(@config)
-      else
-        # Usual thing (so that we don't break other plugins)
-        eval(plugin['class']).new.do_log
+      # credit to Hilton Lipschitz (@hiltmon)
+      updated_config = eval(plugin['class']).new.do_log
+      if updated_config && updated_config.class.to_s == 'Hash'
+          updated_config.each { |k,v|
+            @config[_namespace][k] = v
+          }
       end
     end
     ConfigTools.new({'config_file' => $options[:config_file]}).dump_config(@config)
@@ -210,12 +290,11 @@ class Slogger
 </plist>
 XMLTEMPLATE
     else
-      br = "  "
       ERB.new <<-MARKDOWNTEMPLATE
-Title: Journal entry for <%= datestamp %><%= br %>
-Date: <%= datestamp %><%= br %>
-Starred: <%= starred %><%= br %>
-<% if tags %>Tags: <% tags.join(", ") %><%= br %><% end %>
+Title: Journal entry for <%= datestamp %>
+Date: <%= datestamp %>
+Starred: <%= starred %>
+<% if tags %>Tags: <% tags.join(", ") %>  <% end %>
 
 <%= entry %>
 
